@@ -1,23 +1,15 @@
 (ns alanlcode.util.os
-  "Generic OS-interaction related utilities."
-  (:require [clj-time
-             [coerce :as convert]
-             [core :as time]]
-            [clojail.core :refer (thunk-timeout)]
-            [clojure.java.io :as io]
+  "OS related utilities."
+  (:require [clojure.java.io :as io]
             [clojure.string :as str])
   (:import [java.nio.file FileAlreadyExistsException Files NotLinkException]
-           java.nio.file.attribute.FileAttribute
-           java.security.MessageDigest))
+           java.nio.file.attribute.FileAttribute))
 
 (defn nil-unless-exists
   "Return the given file if it actually exists, nil otherwise."
   [file]
   (when (.exists file)
     file))
-
-(defn gen-timestamp []
-  (convert/to-long (time/now)))
 
 (defn child-directories [parent-dir]
   (let [parent-dir (io/file parent-dir)]
@@ -183,18 +175,3 @@
           true
           (recur ancestor parent))))))
 
-(defn sha256-string [file]
-  (when-let [contents (slurp file)]
-    (let [hash-instance (doto (MessageDigest/getInstance "SHA-256")
-                          (.update (.getBytes contents)))]
-      (apply str (map #(format "%02x" %) (.digest hash-instance))))))
-
-(defmacro with-timeout [ms & body]
-  `(thunk-timeout (fn [] ~@body) ~ms))
-
-(defmacro timed
-  "Return how long the underlying forms took to execute in nanoseconds."
-  ([& forms]
-   `(let [s# (System/nanoTime)]
-      ~@forms
-      (- (System/nanoTime) s#))))

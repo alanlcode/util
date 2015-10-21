@@ -5,5 +5,6 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.7.0"]
                  [org.clojure/clojurescript "1.7.145"]
+                 [org.clojure/tools.logging "0.3.1"]
                  [clojail "1.0.6"]
                  [clj-time "0.11.0"]])
