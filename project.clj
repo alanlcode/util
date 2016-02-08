@@ -1,4 +1,4 @@
-(defproject util "0.1.0-SNAPSHOT"
+(defproject alanlcode/util "0.1.0-SNAPSHOT"
   :description "Utility belt"
   :url "http://github.com/alanlcode/util"
   :license {:name "Eclipse Public License"
@@ -7,4 +7,8 @@
                  [org.clojure/clojurescript "1.7.145"]
                  [org.clojure/tools.logging "0.3.1"]
                  [clojail "1.0.6"]
-                 [clj-time "0.11.0"]])
+                 [clj-time "0.11.0"]]
+  :plugins  [[codox "0.9.1"]]
+  :profiles {:dev {:dependencies [[expectations "2.0.9"]]
+                   :plugins [[lein-expectations "0.0.8"]
+                             [lein-autoexpect "1.7.0"]]}})
