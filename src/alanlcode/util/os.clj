@@ -232,6 +232,12 @@
        (subs fname (inc sep-index))]
       [fname ""])))
 
+(defn has-extension?
+  "Return true iff the given file has the given extension (excluding the . separator)"
+  [extension file]
+  (let [[_ ext] (name-and-ext file)]
+    (= ext extension)))
+
 (defn resolve-symlink
   "Resolve the target of this symlink.  If this is not a symlink, just return
    the file. Otherwise return nil if this fails."
