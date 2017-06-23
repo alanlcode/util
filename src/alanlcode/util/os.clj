@@ -5,9 +5,15 @@
   (:import java.io.File
            java.net.URI
            [java.nio.file FileAlreadyExistsException Files LinkOption NotLinkException Path Paths]
-           java.nio.file.attribute.FileAttribute))
+           [java.nio.file.attribute FileAttribute PosixFilePermission]))
 
+(def FOLLOW (into-array LinkOption nil))
 (def NOFOLLOW (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
+
+(def ^:dynamic *follow-links* true)
+
+(defn- link-options []
+  (if *follow-links* FOLLOW NOFOLLOW))
 
 (defn ^File ->file [& args]
   (apply io/file
@@ -32,9 +38,9 @@
     (iterator-seq (.iterator path))))
 
 (defn path-exists
-  "Return true if path exists.  Does not follow symlinks."
+  "Return true if path exists.  Follows symlinks by default."
   [path]
-  (Files/exists (->path path) NOFOLLOW))
+  (Files/exists (->path path) (link-options)))
 
 (defn is-absolute
   "Return true if path is absolute."
@@ -42,19 +48,166 @@
   (.isAbsolute (->path path)))
 
 (defn is-regular
-  "Return true if path is a regular file. Does not follow symlinks."
+  "Return true if path is a regular file. Follows symlinks by default."
   [path]
-  (Files/isRegularFile (->path path) NOFOLLOW))
+  (Files/isRegularFile (->path path) (link-options)))
 
 (defn is-symlink
-  "Return true if path is a symlink. Does not follow symlinks."
+  "Return true if path is a symlink. Follows symlinks by default."
   [path]
   (Files/isSymbolicLink (->path path)))
 
 (defn is-directory
-  "Return true if path is a directory. Does not follow symlinks."
-  [file]
-  (Files/isDirectory (->path file) NOFOLLOW))
+  "Return true if path is a directory. Follows symlinks by default."
+  [path]
+  (Files/isDirectory (->path path) (link-options)))
+
+(defn is-readable
+  "Return true if path is readable."
+  [path]
+  (Files/isReadable (->path path)))
+
+(defn is-writable
+  "Return true if path is writable."
+  [path]
+  (Files/isWritable (->path path)))
+
+(defn is-executable
+  "Return true if path is executable."
+  [path]
+  (Files/isExecutable (->path path)))
+
+(defn set-readable
+  "Make file readable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setReadable (->file path) true false)
+  nil)
+
+(defn set-owner-readable
+  "Make file readable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setReadable (->file path) true true)
+  nil)
+
+(defn set-unreadable
+  "Make file unreadable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setReadable (->file path) false false)
+  nil)
+
+(defn set-owner-unreadable
+  "Make file unreadable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setReadable (->file path) false true)
+  nil)
+
+(defn set-writable
+  "Make file writable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setWritable (->file path) true false)
+  nil)
+
+(defn set-owner-writable
+  "Make file writable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setWritable (->file path) true true)
+  nil)
+
+(defn set-unwritable
+  "Make file unwritable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setWritable (->file path) false false)
+  nil)
+
+(defn set-owner-unwritable
+  "Make file unwritable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setWritable (->file path) false true)
+  nil)
+
+(defn set-executable
+  "Make file executable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setExecutable (->file path) true false)
+   nil)
+
+(defn set-owner-executable
+  "Make file executable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setExecutable (->file path) true true)
+   nil)
+
+(defn set-unexecutable
+  "Make file unexecutable to all. Follows symlinks. Returns nil."
+  [path]
+  (.setExecutable (->file path) false false)
+   nil)
+
+(defn set-owner-unexecutable
+  "Make file unexecutable to owner. Follows symlinks. Returns nil."
+  [path]
+  (.setExecutable (->file path) false true)
+   nil)
+
+(defn get-posix-permissions
+  "Get permissions of file using POSIX symbolic notation. If successful, return
+   a 3-character octal string, otherwise return nil."
+  [path]
+  (let [has-permission? (fn [coll p] (if (contains? coll p) 1 0))
+        owner-fn (juxt #(has-permission? % PosixFilePermission/OWNER_READ)
+                       #(has-permission? % PosixFilePermission/OWNER_WRITE)
+                       #(has-permission? % PosixFilePermission/OWNER_EXECUTE))
+        group-fn (juxt #(has-permission? % PosixFilePermission/GROUP_READ)
+                       #(has-permission? % PosixFilePermission/GROUP_WRITE)
+                       #(has-permission? % PosixFilePermission/GROUP_EXECUTE))
+        other-fn (juxt #(has-permission? % PosixFilePermission/OTHERS_READ)
+                       #(has-permission? % PosixFilePermission/OTHERS_WRITE)
+                       #(has-permission? % PosixFilePermission/OTHERS_EXECUTE))
+        bits->octal (fn [bits]
+                      (reduce + (map (fn [b n] (* b (int (Math/pow 2 n)))) 
+                                     (reverse bits)
+                                     (range))))]
+    (->> (Files/getPosixFilePermissions (->path path) (link-options))
+         ((juxt owner-fn group-fn other-fn))
+         (map bits->octal)
+         (apply str))))
+
+(defn set-posix-permissions
+  "Set permissions of file using POSIX symbolic notation. permission-str must
+   be a 3-character octal string; otherwise, throws ExceptionInfo. Returns
+   nil."
+  [path permission-str]
+  (when (not= 3 (count permission-str))
+    (throw (ex-info (str "Invalid permission string " permission-str)
+                    {:permission-str permission-str
+                     :cause ::invalid-permission-string})))
+  (let [parse-fn 
+        (fn [s]
+          (try
+            (let [n (Integer/parseUnsignedInt s 8)]
+              (loop [ixs (range 9)
+                     n n
+                     perms '()]
+                (if (seq ixs)
+                  (recur (next ixs)
+                         (bit-shift-right n 1)
+                         (conj perms (bit-test n 0)))
+                  perms)))
+            (catch NumberFormatException e
+              (throw (ex-info (str "Invalid permission string " permission-str)
+                              {:permission-str permission-str
+                               :cause ::invalid-permission-string})))))
+        permission-order 
+        [PosixFilePermission/OWNER_READ  PosixFilePermission/OWNER_WRITE  PosixFilePermission/OWNER_EXECUTE  
+         PosixFilePermission/GROUP_READ  PosixFilePermission/GROUP_WRITE  PosixFilePermission/GROUP_EXECUTE  
+         PosixFilePermission/OTHERS_READ PosixFilePermission/OTHERS_WRITE PosixFilePermission/OTHERS_EXECUTE]
+        permissions
+        (set
+          (for [[p b] (map list permission-order (parse-fn permission-str))
+                :when b]
+            p))]
+    (Files/setPosixFilePermissions (->path path) permissions)
+    nil))
 
 (defn directory-seq
   "Return seq of paths at root. Does not recurse. Never throws exception."
@@ -66,11 +219,11 @@
 (defn child-directories
   "Return seq of child directory paths at root. Does not recurse. Never throws exception."
   [path]
-  (filter is-directory (directory-seq (->path path))))
+  (doall (filter is-directory (directory-seq (->path path)))))
 
 (defn child-files [path]
   "Return seq of regular file paths at root. Does not recurse. Never throws exception."
-  (filter is-regular (directory-seq (->path path))))
+  (doall (filter is-regular (directory-seq (->path path)))))
 
 (defn recursive-directory-seq
   "Return seq of paths at root. Recurses. Does not follow symlinks."
@@ -82,7 +235,7 @@
       (or (is-regular path) (is-symlink path))
       (list path)
       :else
-      (concat (list path) (mapcat recursive-directory-seq (directory-seq path))))))
+      (doall (concat (list path) (mapcat recursive-directory-seq (directory-seq path)))))))
 
 (defn ^Path current-directory
   "Return path to current directory."

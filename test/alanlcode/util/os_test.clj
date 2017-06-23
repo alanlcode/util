@@ -1,10 +1,11 @@
 (ns alanlcode.util.os-test
-  (:require [alanlcode.util.os :refer :all]
+  (:require [alanlcode.util.os :refer :all :as os]
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.test :refer [deftest]]
             [expectations :refer :all])
-  (:import [java.nio.file FileAlreadyExistsException Path NoSuchFileException]))
+  (:import [clojure.lang ExceptionInfo]
+           [java.nio.file FileAlreadyExistsException Path NoSuchFileException]))
 
 (def test-input-path (->path "test-inputs" "os"))
 (def test-input-contents (->> ["symlink" "regular_file" "dir_symlink" "directory"]
@@ -53,8 +54,10 @@
 ;; is-directory
 
 (expect false (is-directory (->path test-input-path "regular_file")))
-(expect false (is-directory (->path test-input-path "symlink")))
-(expect false (is-directory (->path test-input-path "dir_symlink")))
+(expect true  (is-directory (->path test-input-path "symlink")))
+(expect false (binding [*follow-links* false] (is-directory (->path test-input-path "symlink"))))
+(expect true  (is-directory (->path test-input-path "dir_symlink")))
+(expect false (binding [*follow-links* false] (is-directory (->path test-input-path "dir_symlink"))))
 (expect true  (is-directory (->path test-input-path "directory")))
 (expect true  (is-directory (->path test-input-path ".")))
 (expect true  (is-directory (->path test-input-path "..")))
@@ -77,7 +80,11 @@
 
 ;; child-directories
 
-(expect [(->path test-input-path "directory")] (child-directories test-input-path))
+(expect #{(->path test-input-path "directory")
+          (->path test-input-path "dir_symlink")
+          (->path test-input-path "symlink")}
+        (set (child-directories test-input-path)))
+(expect [(->path test-input-path "directory")] (binding [*follow-links* false] (child-directories test-input-path)))
 (expect empty? (child-directories "doesntexist"))
 
 ;; child-files
@@ -173,7 +180,8 @@
 
 (expect test-input-path (make-or-get-dir test-input-path))
 (expect nil (make-or-get-dir (->path test-input-path "regular_file"))) ;; same name as regular file
-(expect nil (make-or-get-dir (->path test-input-path "symlink")))      ;; same name as symlink
+(expect (->path test-input-path "symlink") (make-or-get-dir (->path test-input-path "symlink"))) ;; same name as symlink
+(expect nil (binding [*follow-links* false] (make-or-get-dir (->path test-input-path "symlink")))) ;; same name as symlink
 (expect (->path test-input-path "directory") (make-or-get-dir (->path test-input-path "directory")))
 
 ;; make-or-get-dirs
@@ -261,3 +269,56 @@
 (expect (->path "c") (path-relative-to "a/b" "a/b/c"))
 (expect (->path "c") (path-relative-to "/a/b" "/a/b/c"))
 (expect (->path "/a/b/c") (path-relative-to "/a/b/c/d" "/a/b/c"))
+
+(expect (into []
+              (for [rbit [false true]
+                    wbit [false true]
+                    xbit [false true]
+                    own  [false true]
+                    :let [fperms [rbit wbit xbit]
+                          lperms fperms]]
+                [fperms lperms]))
+
+        (do (recursive-delete-directory test-temp-dir)
+            (let [root (make-dir test-temp-dir)
+                  fls (doall
+                        (for [rbit [false true]
+                              wbit [false true]
+                              xbit [false true]
+                              own  [false true]
+                              :let [bitmask-str (str (if rbit "r" "_")
+                                                     (if wbit "w" "_")
+                                                     (if xbit "x" "_")
+                                                     (if own  "o" "_"))
+                                    f (make-file (->path root (str "f-" bitmask-str)))
+                                    l (create-symlink (->path root (str "l-" bitmask-str)) f)
+                                    set-readable   (if own os/set-owner-readable os/set-readable)
+                                    set-writable   (if own os/set-owner-writable os/set-writable)
+                                    set-executable (if own os/set-owner-executable os/set-executable)]]
+                          (do (set-posix-permissions f "000")
+                              (if rbit (set-readable f) (set-unreadable f))
+                              (if wbit (set-writable f) (set-unwritable f))
+                              (if xbit (set-executable f) (set-unexecutable f))
+                              [f l])))
+                  permission-f (juxt is-readable is-writable is-executable)]
+              (into []
+                    (map (fn [[f l]] [(permission-f f) (permission-f l)]))
+                    fls))))
+
+(expect (into [] 
+              (map #(format "%03o" %))
+              (range (inc 0777)))
+        (do (recursive-delete-directory test-temp-dir)
+            (let [root (make-dir test-temp-dir)
+                  fs (doall
+                       (for [poctal (range (inc 0777))
+                             :let [f (make-file (->path root (str "f-" (format "%03o" poctal))))]]
+                         (do (set-posix-permissions f (format "%03o" poctal))
+                             f)))]
+              (into []
+                    (map get-posix-permissions)
+                    fs))))
+
+(expect ExceptionInfo (set-posix-permissions test-temp-dir "abc"))
+(expect ExceptionInfo (set-posix-permissions test-temp-dir ""))
+(expect ExceptionInfo (set-posix-permissions test-temp-dir "1"))
