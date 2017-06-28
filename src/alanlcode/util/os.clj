@@ -3,7 +3,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str])
   (:import java.io.File
-           java.net.URI
+           [java.net URI URL]
            [java.nio.file FileAlreadyExistsException Files LinkOption NotLinkException Path Paths]
            [java.nio.file.attribute FileAttribute PosixFilePermission]))
 
@@ -19,14 +19,27 @@
   (apply io/file
          (map (fn [x] (cond (instance? Path x) (.toFile x)
                             (instance? URI x) (.getPath x)
+                            (instance? URL x) (.getPath x)
                             :else x))
               args)))
 
-(defn ^Path ->path [& args]
-  (.toPath (apply ->file args)))
+(defn ^Path ->path 
+  ([arg]
+   (if (instance? Path arg) arg (.toPath (->file arg))))
+  ([arg & args]
+   (.toPath (apply ->file arg args))))
 
-(defn ^URI ->uri [& args]
-  (.toUri (apply ->path args)))
+(defn ^URI ->uri
+  ([arg]
+   (if (instance? URI arg) arg (.toUri (->path arg))))
+  ([arg & args]
+   (.toUri (apply ->path arg args))))
+
+(defn ^URL ->url 
+  ([arg]
+   (if (instance? URL arg) arg (.toURL (->uri arg))))
+  ([arg & args]
+   (.toURL (apply ->uri arg args))))
 
 (defn ->absolute-path
   "Return absolute path."
