@@ -1,4 +1,4 @@
-(defproject alanlcode/util "0.1.0-SNAPSHOT"
+(defproject alanlcode/util "0.1.0"
   :description "Utility belt"
   :url "http://github.com/alanlcode/util"
   :license {:name "Eclipse Public License"
